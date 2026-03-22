@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?><!-- C:/Park_disease/app/src/main/res/values/themes.xml -->
+<resources>
+
+    <style name="Theme.Parkinson_disease" parent="Theme.AppCompat.Light.NoActionBar" />
+</resources>
