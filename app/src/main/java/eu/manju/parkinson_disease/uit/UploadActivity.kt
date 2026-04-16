@@ -52,7 +52,7 @@ class UploadActivity : AppCompatActivity() {
             if (requestCode == GALLERY_REQUEST) {
                 val uri: Uri? = data.data
                 if (uri != null) {
-                    intent.putExtra("imageUri", uri)
+                    intent.putExtra("imageUri", uri.toString())
                 }
             }
 
