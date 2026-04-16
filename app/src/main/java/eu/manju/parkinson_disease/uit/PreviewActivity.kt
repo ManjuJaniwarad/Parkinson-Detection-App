@@ -81,7 +81,7 @@ class PreviewActivity : AppCompatActivity() {
 
             val resultText = when {
                 resultValue > 0.7 -> "Parkinson's Detected"
-                resultValue < 0.4 -> "Healthy"
+                resultValue < 0.6 -> "Healthy"
                 else -> "Uncertain"
             }
 

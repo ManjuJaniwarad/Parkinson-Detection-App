@@ -1,5 +1,6 @@
 package eu.manju.parkinson_disease.uit
 
+import android.content.Intent
 import android.os.Bundle
 import android.widget.Button
 import android.widget.TextView
@@ -24,7 +25,7 @@ class ResultActivity : AppCompatActivity() {
         txtConfidence.text = "Confidence: ${confidence ?: "N/A"}"
 
         btnBack.setOnClickListener {
-            finish()
+            startActivity(Intent(this, UploadActivity::class.java))
         }
     }
 }
