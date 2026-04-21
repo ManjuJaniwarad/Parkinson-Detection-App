@@ -1,24 +1,28 @@
 package eu.manju.parkinson_disease.uit
 
-import android.graphics.*
+import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.Toast
-import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.net.toUri
 import eu.manju.parkinson_disease.R
 import org.tensorflow.lite.Interpreter
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import android.graphics.ImageDecoder
-import androidx.core.net.toUri
 
 class PreviewActivity : AppCompatActivity() {
 
-    @RequiresApi(Build.VERSION_CODES.P)
+    private lateinit var interpreter: Interpreter
+    private var bitmapInput: Bitmap? = null
+    private var uri: Uri? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_preview)
@@ -26,134 +30,145 @@ class PreviewActivity : AppCompatActivity() {
         val imageView = findViewById<ImageView>(R.id.imageView)
         val btnAnalyze = findViewById<Button>(R.id.btnAnalyze)
 
-        val bitmap = intent.getParcelableExtra<Bitmap>("image")
-        val uri = intent.getStringExtra("imageUri")?.toUri()
+        interpreter = Interpreter(loadModelFile(this))
 
-        // Display image
-        when {
-            bitmap != null -> imageView.setImageBitmap(bitmap)
-            uri != null -> imageView.setImageURI(uri)
-            else -> imageView.setImageResource(android.R.drawable.ic_menu_report_image)
+        uri = intent.getStringExtra("imageUri")?.toUri()
+
+        // 🔹 Decode image safely
+        bitmapInput = try {
+            uri?.let {
+                contentResolver.openInputStream(it)?.use { stream ->
+                    BitmapFactory.decodeStream(stream)
+                }
+            }
+        } catch (e: Exception) {
+            null
+        }
+
+        // 🔹 Fix rotation (camera images)
+        bitmapInput = bitmapInput?.let {
+            if (uri != null) fixRotation(it, uri!!) else it
+        }
+
+        if (bitmapInput != null) {
+            imageView.setImageBitmap(bitmapInput)
+        } else {
+            Toast.makeText(this, "Failed to load image", Toast.LENGTH_SHORT).show()
+            finish()
         }
 
         btnAnalyze.setOnClickListener {
 
-            val bitmapInput: Bitmap? = when {
-                bitmap != null -> bitmap
-                uri != null -> ImageDecoder.decodeBitmap(
-                    ImageDecoder.createSource(contentResolver, uri)
-                )
-                else -> null
-            }
-
-            if (bitmapInput == null) return@setOnClickListener
-
-            // STEP 1: Resize
-            val resized = Bitmap.createScaledBitmap(bitmapInput, 224, 224, true)
-
-            // STEP 2: Clean image (white background)
-            val processedBitmap = Bitmap.createBitmap(224, 224, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(processedBitmap)
-            canvas.drawColor(Color.WHITE)
-            canvas.drawBitmap(resized, 0f, 0f, null)
-
-            val finalBitmap = processedBitmap
-
-            // STEP 3: Validate image
-            if (!isHandwriting(finalBitmap)) {
-                Toast.makeText(
-                    this,
-                    "Please upload a valid handwriting/spiral image",
-                    Toast.LENGTH_LONG
-                ).show()
+            val bitmap = bitmapInput
+            if (bitmap == null) {
+                Toast.makeText(this, "No image selected", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
 
-            // STEP 4: Convert to grayscale
-            val grayBitmap = Bitmap.createBitmap(224, 224, Bitmap.Config.ARGB_8888)
+            try {
+                val resized = Bitmap.createScaledBitmap(bitmap, 224, 224, true)
 
-            for (y in 0 until 224) {
-                for (x in 0 until 224) {
-                    val pixel = finalBitmap.getPixel(x, y)
-
-                    val r = (pixel shr 16 and 0xFF)
-                    val g = (pixel shr 8 and 0xFF)
-                    val b = (pixel and 0xFF)
-
-                    val gray = (r + g + b) / 3
-
-                    grayBitmap.setPixel(x, y, Color.rgb(gray, gray, gray))
+                // 🔹 BASIC FILTER (reject blank/random)
+                if (!isBasicDrawing(resized)) {
+                    showInvalid()
+                    return@setOnClickListener
                 }
-            }
 
-            // STEP 5: Convert to ByteBuffer
-            val byteBuffer = ByteBuffer.allocateDirect(4 * 224 * 224 * 3)
-            byteBuffer.order(ByteOrder.nativeOrder())
+                // 🔹 Convert to RGB buffer
+                val buffer = ByteBuffer.allocateDirect(4 * 224 * 224 * 3)
+                buffer.order(ByteOrder.nativeOrder())
 
-            for (y in 0 until 224) {
-                for (x in 0 until 224) {
-                    val pixel = grayBitmap.getPixel(x, y)
-
-                    val r = (pixel shr 16 and 0xFF) / 255.0f
-                    val g = (pixel shr 8 and 0xFF) / 255.0f
-                    val b = (pixel and 0xFF) / 255.0f
-
-                    byteBuffer.putFloat(r)
-                    byteBuffer.putFloat(g)
-                    byteBuffer.putFloat(b)
+                for (y in 0 until 224) {
+                    for (x in 0 until 224) {
+                        val p = resized.getPixel(x, y)
+                        buffer.putFloat((p shr 16 and 0xFF) / 255f)
+                        buffer.putFloat((p shr 8 and 0xFF) / 255f)
+                        buffer.putFloat((p and 0xFF) / 255f)
+                    }
                 }
+
+                val output = Array(1) { FloatArray(1) }
+                interpreter.run(buffer, output)
+
+                val value = output[0][0]
+
+                // 🔴 KEY FIX: reject non-spiral using model confusion
+                if (value in 0.45..0.60) {
+                    showInvalid()
+                    return@setOnClickListener
+                }
+
+                val result = if (value > 0.6) {
+                    "Parkinson's Detected"
+                } else {
+                    "Healthy"
+                }
+
+                val intent = Intent(this, ResultActivity::class.java)
+                intent.putExtra("result", result)
+                intent.putExtra("confidence", "${(value * 100).toInt()}%")
+                startActivity(intent)
+
+            } catch (e: Exception) {
+                Toast.makeText(this, "Error processing image", Toast.LENGTH_LONG).show()
             }
-
-            // STEP 6: Run model
-            val interpreter = Interpreter(loadModelFile(this))
-            val output = Array(1) { FloatArray(1) }
-
-            interpreter.run(byteBuffer, output)
-
-            val resultValue = output[0][0]
-
-            // STEP 7: Interpret result
-            val resultText = when {
-                resultValue > 0.6 -> "Parkinson's Detected"
-                resultValue < 0.4 -> "Healthy"
-                else -> "Uncertain - Try Again"
-            }
-
-            val confidence = (resultValue * 100).toInt().toString() + "%"
-
-            // Move to ResultActivity
-            val intent = android.content.Intent(this, ResultActivity::class.java)
-            intent.putExtra("result", resultText)
-            intent.putExtra("confidence", confidence)
-            startActivity(intent)
         }
     }
 
-    // Validation function
-    fun isHandwriting(bitmap: Bitmap): Boolean {
-        var darkPixels = 0
-        var sampledPixels = 0
+    private fun showInvalid() {
+        Toast.makeText(
+            this,
+            "Only spiral images can be captured or uploaded",
+            Toast.LENGTH_LONG
+        ).show()
+        finish()
+    }
 
-        for (y in 0 until bitmap.height step 5) {
-            for (x in 0 until bitmap.width step 5) {
+    private fun isBasicDrawing(bitmap: Bitmap): Boolean {
+        var dark = 0
+        var total = 0
 
-                val pixel = bitmap.getPixel(x, y)
+        for (y in 0 until bitmap.height step 8) {
+            for (x in 0 until bitmap.width step 8) {
+                val p = bitmap.getPixel(x, y)
+                val b = ((p shr 16 and 0xFF) +
+                        (p shr 8 and 0xFF) +
+                        (p and 0xFF)) / 3
 
-                val r = (pixel shr 16 and 0xFF)
-                val g = (pixel shr 8 and 0xFF)
-                val b = (pixel and 0xFF)
-
-                val brightness = (r + g + b) / 3
-
-                if (brightness < 120) darkPixels++
-
-                sampledPixels++
+                if (b < 180) dark++
+                total++
             }
         }
 
-        val ratio = darkPixels.toFloat() / sampledPixels
+        return (dark.toFloat() / total) > 0.01
+    }
 
-        return ratio > 0.02 && ratio < 0.4
+    private fun fixRotation(bitmap: Bitmap, uri: Uri): Bitmap {
+        return try {
+            contentResolver.openInputStream(uri)?.use {
+                val exif = ExifInterface(it)
+                val orientation = exif.getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL
+                )
+
+                val matrix = Matrix()
+
+                when (orientation) {
+                    ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+                    ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+                    ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+                }
+
+                Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+            } ?: bitmap
+        } catch (e: Exception) {
+            bitmap
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        interpreter.close()
     }
 }
-
