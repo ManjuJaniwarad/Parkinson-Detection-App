@@ -34,22 +34,23 @@ class PreviewActivity : AppCompatActivity() {
 
         uri = intent.getStringExtra("imageUri")?.toUri()
 
-        // 🔹 Decode image safely
+        // ✅ Correct decoding (FIXED)
         bitmapInput = try {
             uri?.let {
-                contentResolver.openInputStream(it)?.use { stream ->
-                    BitmapFactory.decodeStream(stream)
+                contentResolver.openFileDescriptor(it, "r")?.use { pfd ->
+                    BitmapFactory.decodeFileDescriptor(pfd.fileDescriptor)
                 }
             }
         } catch (e: Exception) {
             null
         }
 
-        // 🔹 Fix rotation (camera images)
+        // ✅ Fix rotation (camera images)
         bitmapInput = bitmapInput?.let {
             if (uri != null) fixRotation(it, uri!!) else it
         }
 
+        // ✅ Show preview
         if (bitmapInput != null) {
             imageView.setImageBitmap(bitmapInput)
         } else {
@@ -68,19 +69,20 @@ class PreviewActivity : AppCompatActivity() {
             try {
                 val resized = Bitmap.createScaledBitmap(bitmap, 224, 224, true)
 
-                // 🔹 BASIC FILTER (reject blank/random)
+                // ✅ Basic filter (reject blank)
                 if (!isBasicDrawing(resized)) {
                     showInvalid()
                     return@setOnClickListener
                 }
 
-                // 🔹 Convert to RGB buffer
+                // ✅ Convert to RGB ByteBuffer
                 val buffer = ByteBuffer.allocateDirect(4 * 224 * 224 * 3)
                 buffer.order(ByteOrder.nativeOrder())
 
                 for (y in 0 until 224) {
                     for (x in 0 until 224) {
                         val p = resized.getPixel(x, y)
+
                         buffer.putFloat((p shr 16 and 0xFF) / 255f)
                         buffer.putFloat((p shr 8 and 0xFF) / 255f)
                         buffer.putFloat((p and 0xFF) / 255f)
@@ -92,7 +94,7 @@ class PreviewActivity : AppCompatActivity() {
 
                 val value = output[0][0]
 
-                // 🔴 KEY FIX: reject non-spiral using model confusion
+                // ✅ Reject non-spiral (model confusion zone)
                 if (value in 0.45..0.60) {
                     showInvalid()
                     return@setOnClickListener
@@ -110,6 +112,7 @@ class PreviewActivity : AppCompatActivity() {
                 startActivity(intent)
 
             } catch (e: Exception) {
+                e.printStackTrace()
                 Toast.makeText(this, "Error processing image", Toast.LENGTH_LONG).show()
             }
         }
@@ -131,11 +134,11 @@ class PreviewActivity : AppCompatActivity() {
         for (y in 0 until bitmap.height step 8) {
             for (x in 0 until bitmap.width step 8) {
                 val p = bitmap.getPixel(x, y)
-                val b = ((p shr 16 and 0xFF) +
+                val brightness = ((p shr 16 and 0xFF) +
                         (p shr 8 and 0xFF) +
                         (p and 0xFF)) / 3
 
-                if (b < 180) dark++
+                if (brightness < 180) dark++
                 total++
             }
         }

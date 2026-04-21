@@ -34,7 +34,7 @@
         <!-- ✅ THIS MUST BE INSIDE APPLICATION -->
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.provider"
+            android:authorities="eu.manju.parkinson_disease.provider"
             android:exported="false"
             android:grantUriPermissions="true">
 
