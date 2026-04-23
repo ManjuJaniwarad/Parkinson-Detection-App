@@ -6,7 +6,7 @@ import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
 
 fun loadModelFile(context: Context): MappedByteBuffer {
-    val fileDescriptor = context.assets.openFd("model(1).tflite")
+    val fileDescriptor = context.assets.openFd("model.tflite")
     val inputStream = FileInputStream(fileDescriptor.fileDescriptor)
     val fileChannel = inputStream.channel
     val startOffset = fileDescriptor.startOffset

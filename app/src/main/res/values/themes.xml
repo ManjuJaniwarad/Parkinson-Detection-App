@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?><!-- C:/Park_disease/app/src/main/res/values/themes.xml -->
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
 
-    <style name="Theme.Parkinson_disease" parent="Theme.AppCompat.Light.NoActionBar" />
+    <style name="Theme.Parkinson_disease" parent="Theme.Material3.DayNight.NoActionBar">
+
+        <!-- Background -->
+        <item name="android:windowBackground">@drawable/bg_main</item>
+
+        <!-- Optional colors -->
+        <item name="colorPrimary">#2979FF</item>
+        <item name="colorSecondary">#00E676</item>
+
+    </style>
+
 </resources>

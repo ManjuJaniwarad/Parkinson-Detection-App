@@ -3,9 +3,6 @@ package eu.manju.parkinson_disease.uit
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Matrix
-import android.media.ExifInterface
-import android.net.Uri
 import android.os.Bundle
 import android.widget.Button
 import android.widget.ImageView
@@ -20,8 +17,6 @@ import java.nio.ByteOrder
 class PreviewActivity : AppCompatActivity() {
 
     private lateinit var interpreter: Interpreter
-    private var bitmapInput: Bitmap? = null
-    private var uri: Uri? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -30,143 +25,74 @@ class PreviewActivity : AppCompatActivity() {
         val imageView = findViewById<ImageView>(R.id.imageView)
         val btnAnalyze = findViewById<Button>(R.id.btnAnalyze)
 
+        // Load model
         interpreter = Interpreter(loadModelFile(this))
 
-        uri = intent.getStringExtra("imageUri")?.toUri()
+        val uri = intent.getStringExtra("imageUri")?.toUri()
 
-        // ✅ Correct decoding (FIXED)
-        bitmapInput = try {
-            uri?.let {
-                contentResolver.openFileDescriptor(it, "r")?.use { pfd ->
-                    BitmapFactory.decodeFileDescriptor(pfd.fileDescriptor)
-                }
+        // Load bitmap safely
+        val bitmap: Bitmap? = uri?.let {
+            contentResolver.openInputStream(it)?.use { stream ->
+                BitmapFactory.decodeStream(stream)
             }
-        } catch (e: Exception) {
-            null
         }
 
-        // ✅ Fix rotation (camera images)
-        bitmapInput = bitmapInput?.let {
-            if (uri != null) fixRotation(it, uri!!) else it
-        }
-
-        // ✅ Show preview
-        if (bitmapInput != null) {
-            imageView.setImageBitmap(bitmapInput)
-        } else {
-            Toast.makeText(this, "Failed to load image", Toast.LENGTH_SHORT).show()
+        if (bitmap == null) {
+            Toast.makeText(this, "Image load failed", Toast.LENGTH_SHORT).show()
             finish()
+            return
         }
+
+        imageView.setImageBitmap(bitmap)
 
         btnAnalyze.setOnClickListener {
 
-            val bitmap = bitmapInput
-            if (bitmap == null) {
-                Toast.makeText(this, "No image selected", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
+            val resized = Bitmap.createScaledBitmap(bitmap, 224, 224, true)
+
+            val buffer = ByteBuffer.allocateDirect(4 * 224 * 224 * 3)
+            buffer.order(ByteOrder.nativeOrder())
+
+            // ✅ SAFE RGB extraction (FIXED)
+            for (y in 0 until 224) {
+                for (x in 0 until 224) {
+
+                    val pixel = resized.getPixel(x, y)
+
+                    val r = ((pixel shr 16) and 0xFF).toFloat() / 255f
+                    val g = ((pixel shr 8) and 0xFF).toFloat() / 255f
+                    val b = (pixel and 0xFF).toFloat() / 255f
+
+                    buffer.putFloat(r)
+                    buffer.putFloat(g)
+                    buffer.putFloat(b)
+                }
             }
 
-            try {
-                val resized = Bitmap.createScaledBitmap(bitmap, 224, 224, true)
+            val output = Array(1) { FloatArray(3) }
+            interpreter.run(buffer, output)
 
-                // ✅ Basic filter (reject blank)
-                if (!isBasicDrawing(resized)) {
-                    showInvalid()
+            val probs = output[0]
+            val maxIndex = probs.indices.maxByOrNull { probs[it] } ?: -1
+
+            val result = when (maxIndex) {
+                0 -> "Healthy"
+                1 -> {
+                    Toast.makeText(this, "Only spiral images allowed", Toast.LENGTH_LONG).show()
+                    finish()
                     return@setOnClickListener
                 }
-
-                // ✅ Convert to RGB ByteBuffer
-                val buffer = ByteBuffer.allocateDirect(4 * 224 * 224 * 3)
-                buffer.order(ByteOrder.nativeOrder())
-
-                for (y in 0 until 224) {
-                    for (x in 0 until 224) {
-                        val p = resized.getPixel(x, y)
-
-                        buffer.putFloat((p shr 16 and 0xFF) / 255f)
-                        buffer.putFloat((p shr 8 and 0xFF) / 255f)
-                        buffer.putFloat((p and 0xFF) / 255f)
-                    }
-                }
-
-                val output = Array(1) { FloatArray(1) }
-                interpreter.run(buffer, output)
-
-                val value = output[0][0]
-
-                // ✅ Reject non-spiral (model confusion zone)
-                if (value in 0.45..0.60) {
-                    showInvalid()
-                    return@setOnClickListener
-                }
-
-                val result = if (value > 0.6) {
-                    "Parkinson's Detected"
-                } else {
-                    "Healthy"
-                }
-
-                val intent = Intent(this, ResultActivity::class.java)
-                intent.putExtra("result", result)
-                intent.putExtra("confidence", "${(value * 100).toInt()}%")
-                startActivity(intent)
-
-            } catch (e: Exception) {
-                e.printStackTrace()
-                Toast.makeText(this, "Error processing image", Toast.LENGTH_LONG).show()
+                2 -> "Parkinson's Detected"
+                else -> "Unknown"
             }
-        }
-    }
 
-    private fun showInvalid() {
-        Toast.makeText(
-            this,
-            "Only spiral images can be captured or uploaded",
-            Toast.LENGTH_LONG
-        ).show()
-        finish()
-    }
+            val confidence = (probs[maxIndex] * 100).toInt()
 
-    private fun isBasicDrawing(bitmap: Bitmap): Boolean {
-        var dark = 0
-        var total = 0
+            val intent = Intent(this, ResultActivity::class.java)
+            intent.putExtra("result", result)
+            intent.putExtra("confidence", "$confidence%")
 
-        for (y in 0 until bitmap.height step 8) {
-            for (x in 0 until bitmap.width step 8) {
-                val p = bitmap.getPixel(x, y)
-                val brightness = ((p shr 16 and 0xFF) +
-                        (p shr 8 and 0xFF) +
-                        (p and 0xFF)) / 3
-
-                if (brightness < 180) dark++
-                total++
-            }
-        }
-
-        return (dark.toFloat() / total) > 0.01
-    }
-
-    private fun fixRotation(bitmap: Bitmap, uri: Uri): Bitmap {
-        return try {
-            contentResolver.openInputStream(uri)?.use {
-                val exif = ExifInterface(it)
-                val orientation = exif.getAttributeInt(
-                    ExifInterface.TAG_ORIENTATION,
-                    ExifInterface.ORIENTATION_NORMAL
-                )
-
-                val matrix = Matrix()
-
-                when (orientation) {
-                    ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
-                    ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
-                    ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
-                }
-
-                Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-            } ?: bitmap
-        } catch (e: Exception) {
-            bitmap
+            startActivity(intent)
+            overridePendingTransition(R.anim.zoom_in, R.anim.fade_slide)
         }
     }
 

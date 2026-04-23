@@ -1,52 +1,51 @@
 <?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:background="@drawable/bg_gradient"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_main">
 
-    <!-- Title -->
-    <TextView
-        android:text="Upload Handwriting"
-        android:textColor="#FFFFFF"
-        android:textSize="22sp"
-        android:textStyle="bold"
-        android:layout_marginTop="80dp"
-        android:layout_centerHorizontal="true"
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Capture Spiral"
+            android:textColor="#FFFFFF"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="30dp"/>
+
+        <androidx.cardview.widget.CardView
+            android:layout_width="260dp"
+            android:layout_height="260dp"
+            app:cardCornerRadius="24dp"
+            app:cardElevation="12dp"
+            app:cardBackgroundColor="#1AFFFFFF">
+
+            <ImageView
+                android:layout_width="80dp"
+                android:layout_height="80dp"
+                android:layout_gravity="center"
+                android:src="@android:drawable/ic_menu_camera"
+                android:tint="#FFFFFF"/>
+
+        </androidx.cardview.widget.CardView>
+
+    </LinearLayout>
+
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/btnCamera"
         android:layout_width="wrap_content"
-        android:layout_height="wrap_content"/>
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="40dp"
+        android:src="@drawable/camera"
+        android:tint="#FFFFFF"
+        app:backgroundTint="#2979FF"/>
 
-    <!-- Card -->
-    <androidx.cardview.widget.CardView
-        android:layout_centerInParent="true"
-        android:layout_width="320dp"
-        android:layout_height="220dp"
-        android:elevation="8dp"
-        android:radius="20dp">
-
-        <LinearLayout
-            android:orientation="vertical"
-            android:gravity="center"
-            android:padding="20dp"
-            android:layout_height="match_parent"
-            android:layout_width="match_parent">
-
-            <Button
-                android:id="@+id/btnCamera"
-                android:text="📷 Capture Image"
-                android:textAllCaps="false"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"/>
-
-            <Button
-                android:id="@+id/btnGallery"
-                android:text="🖼 Select from Gallery"
-                android:textAllCaps="false"
-                android:layout_marginTop="15dp"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"/>
-
-        </LinearLayout>
-
-    </androidx.cardview.widget.CardView>
-
-</RelativeLayout>
+</FrameLayout>
